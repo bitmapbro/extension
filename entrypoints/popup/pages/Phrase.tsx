@@ -10,7 +10,7 @@ import { useAuth } from "../lib/auth";
 
 export default function () {
   const redirect = useNavigate();
-  const save = useAuth().setPassphrase;
+  const save = useAuth().savePassphrase;
   const [passphrase, setPassphrase] = useState<string>(generateMnemonic(en));
   return (
     <Container

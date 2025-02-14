@@ -8,7 +8,7 @@ import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 
 import Alert from "./components/Alert";
-import { AuthProvider } from "./lib/auth";
+import { AuthProvider, PrivateRoutes } from "./lib/auth";
 import AccountTokens from "./pages/account/Tokens";
 import Home from "./pages/Home";
 import NotFound from "./pages/NotFound";
@@ -32,16 +32,18 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <HashRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/account/tokens" element={<AccountTokens />} />
-            <Route path="/signup" element={<SignUp />} />
             <Route path="/signin" element={<SignIn />} />
-            <Route path="/reset" element={<Reset />} />
-            <Route path="/parameters" element={<Parameters />} />
+            <Route path="/signup" element={<SignUp />} />
             <Route path="/phrase" element={<Phrase />} />
             <Route path="/phrase/own" element={<OwnPhrase />} />
-            <Route path="*" element={<NotFound />} />
-            {/* </Route> */}
+
+            <Route element={<PrivateRoutes />}>
+              <Route path="/account/tokens" element={<AccountTokens />} />
+              <Route path="/" element={<Home />} />
+              <Route path="/reset" element={<Reset />} />
+              <Route path="/parameters" element={<Parameters />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
           </Routes>
         </AuthProvider>
       </HashRouter>

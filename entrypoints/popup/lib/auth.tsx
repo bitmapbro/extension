@@ -1,8 +1,22 @@
-import { useLocation, useNavigate, Navigate } from "react-router";
+import { useLocation, useNavigate, Navigate, Outlet } from "react-router";
 import { useState, useEffect, useContext, createContext } from "react";
 import { decrypt, derive, encrypt } from "./derive";
 import { store } from "./store";
 import { storage } from "wxt/storage";
+
+export function PrivateRoutes(): React.ReactNode {
+  const { hasSignedIn, hasSignedUp, passphrase } = useAuth();
+  if (!hasSignedUp && location.pathname !== "/signup") {
+    return <Navigate to="/signup" />;
+  }
+  if (!hasSignedIn && location.pathname !== "/signin") {
+    return <Navigate to="/signin" />;
+  }
+  if (passphrase && location.pathname.startsWith("/phrase")) {
+    return <Navigate to="/phrase" />;
+  }
+  return <Outlet />;
+}
 
 type AuthProviderProps = {
   children: React.ReactNode;
@@ -12,52 +26,20 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
   const redirect = useNavigate();
   const [challenge, setChallenge] = useState("");
   const [cipher, setCipher] = useState(null as CryptoKey | null);
-  const [verifier, setStateVerifier] = useState("");
-  const [passphrase, setStatePassphrase] = useState("");
+  const [verifier, setVerifier] = useState("");
+  const [passphrase, setPassphrase] = useState("");
   const [hasSignedIn, setHasSignedIn] = useState(false);
   const [hasSignedUp, setHasSignedUp] = useState(false);
 
   const signIn = async (email: string, password: string) => {
     const { encrypter } = await derive(email, password);
-    await verify(encrypter);
-    setHasSignedIn(true);
-  };
-
-  const signOut = async () => {
-    setHasSignedIn(false);
-    setCipher(null);
-  };
-
-  const signUp = async (email: string, password: string): Promise<void> => {
-    const { encrypter } = await derive(email, password);
-    const output = await encrypt(encrypter, challenge);
-    await setVerifier(output);
-    setHasSignedUp(true);
-  };
-
-  const setPassphrase = async (value: string) => {
-    if (!cipher) {
-      throw new Error("no cipher");
-    }
-    const output = await encrypt(cipher, value);
-    await storage.setItem(`local:${store.mnemonic}`, output);
-    setStatePassphrase(value);
-  };
-
-  const setVerifier = async (value: string) => {
-    setHasSignedUp(true);
-    await storage.setItem(`local:${store.verifier}`, value);
-    setStateVerifier(value);
-  };
-
-  const verify = async (key: CryptoKey | null): Promise<boolean> => {
-    if (!key) {
+    if (!encrypter) {
       setCipher(null);
       return false;
     }
     let output = "";
     try {
-      output = await decrypt(key, verifier);
+      output = await decrypt(encrypter, verifier);
     } catch {
       setCipher(null);
       return false;
@@ -66,14 +48,32 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
       setCipher(null);
       return false;
     }
-    setCipher(key);
-    setHasSignedIn(true);
+    setCipher(encrypter);
     const mnemonic = await storage.getItem<string>(`local:${store.mnemonic}`);
     if (mnemonic) {
-      const decodedPassphrase = await decrypt(key, mnemonic);
-      setStatePassphrase(decodedPassphrase);
+      const decodedPassphrase = await decrypt(encrypter, mnemonic);
+      setPassphrase(decodedPassphrase);
     }
     return true;
+  };
+
+  const signOut = async () => setCipher(null);
+
+  const signUp = async (email: string, password: string): Promise<void> => {
+    const { encrypter } = await derive(email, password);
+    const output = await encrypt(encrypter, challenge);
+    await storage.setItem(`local:${store.verifier}`, output);
+    setVerifier(output);
+    setHasSignedUp(true);
+  };
+
+  const savePassphrase = async (decodedPassphrase: string) => {
+    if (!cipher) {
+      throw new Error("no cipher");
+    }
+    const output = await encrypt(cipher, decodedPassphrase);
+    await storage.setItem(`local:${store.mnemonic}`, output);
+    setPassphrase(decodedPassphrase);
   };
 
   useEffect(() => {
@@ -83,7 +83,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
       );
       const verifier = await storage.getItem<string>(`local:${store.verifier}`);
       setChallenge(challenge ?? "");
-      setStateVerifier(verifier ?? "");
+      setVerifier(verifier ?? "");
     })();
   });
 
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
         storage.removeItem(`local:${store.verifier}`),
         storage.removeItem(`local:${store.mnemonic}`),
       ]);
-      setStatePassphrase("");
+      setPassphrase("");
       setHasSignedIn(false);
       setHasSignedUp(false);
       redirect("/signup");
@@ -119,6 +119,11 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     if (verifier && !cipher) {
       setHasSignedIn(false);
       redirect("/signin");
+      return;
+    }
+    if (verifier && cipher) {
+      setHasSignedIn(true);
+      return;
     }
   }, [cipher]);
 
@@ -133,13 +138,11 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
         hasSignedUp,
         passphrase,
         resetWallet,
-        setPassphrase,
-        setVerifier,
+        savePassphrase,
         signIn,
         signOut,
         signUp,
         verifier,
-        verify,
       }}
     >
       {children}
@@ -180,13 +183,11 @@ export const AuthContext = createContext<{
   hasSignedUp: boolean;
   passphrase: string;
   resetWallet: () => void;
-  setPassphrase: (value: string) => void;
-  setVerifier: (value: string) => void;
+  savePassphrase: (value: string) => void;
   signIn: (e: string, p: string) => void;
   signOut: () => void;
   signUp: (e: string, p: string) => void;
   verifier: string;
-  verify: (key: CryptoKey | null) => Promise<boolean>;
 }>({
   challenge: "",
   cipher: null,
@@ -194,13 +195,11 @@ export const AuthContext = createContext<{
   hasSignedUp: false,
   passphrase: "",
   resetWallet: () => {},
-  setPassphrase: () => {},
-  setVerifier: () => {},
+  savePassphrase: () => {},
   signIn: () => {},
   signOut: () => {},
   signUp: () => {},
   verifier: "",
-  verify: async () => false,
 });
 
 export function useAuth() {

@@ -6,7 +6,7 @@ import { useAuth } from "../lib/auth";
 
 export default function () {
   const redirect = useNavigate();
-  const { setPassphrase } = useAuth();
+  const { savePassphrase: setPassphrase } = useAuth();
   return (
     <Container>
       <form
