@@ -4,9 +4,12 @@ import { useAuth } from "../lib/auth";
 
 export default function () {
   const redirect = useNavigate();
-  const { hasSignedUp, hasSignedIn, passphrase } = useAuth();
+  const { authReady, hasSignedUp, hasSignedIn, passphrase } = useAuth();
   useEffect(() => {
     (async () => {
+      if (!authReady) {
+        return;
+      }
       if (!hasSignedUp) {
         redirect("/signup");
         return;
@@ -21,7 +24,7 @@ export default function () {
       }
       redirect("/account/tokens");
     })();
-  }, []);
+  }, [hasSignedUp, hasSignedIn, passphrase]);
 
   return <></>;
 }

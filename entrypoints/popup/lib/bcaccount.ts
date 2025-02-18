@@ -18,14 +18,3 @@ export type AccountConfig = {
   // The public key.
   defaultTransactionVersion: "0x2" | "0x3";
 };
-
-// export const getAccount = (config: Config): Account => {
-//   const provider = new RpcProvider({ nodeUrl: config.providerURL });
-//   return new Account(
-//     provider,
-//     configAccount.address,
-//     configAccount.privateKey,
-//     "1",
-//     configAccount.defaultTransactionVersion
-//   );
-// };

@@ -32,7 +32,7 @@ export default function () {
                 redirect("/parameters/phrase");
               }}
             >
-              Pass phrase
+              Passphrase
             </MenuItem>
             <MenuItem
               onClick={() => {

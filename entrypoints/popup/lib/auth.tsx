@@ -1,35 +1,37 @@
-import { useLocation, useNavigate, Navigate, Outlet } from "react-router";
 import { useState, useEffect, useContext, createContext } from "react";
-import { decrypt, derive, encrypt } from "./derive";
-import { store } from "./store";
+import { useNavigate } from "react-router-dom";
 import { storage } from "wxt/storage";
 
-export function PrivateRoutes(): React.ReactNode {
-  const { hasSignedIn, hasSignedUp, passphrase } = useAuth();
-  if (!hasSignedUp && location.pathname !== "/signup") {
-    return <Navigate to="/signup" />;
-  }
-  if (!hasSignedIn && location.pathname !== "/signin") {
-    return <Navigate to="/signin" />;
-  }
-  if (passphrase && location.pathname.startsWith("/phrase")) {
-    return <Navigate to="/phrase" />;
-  }
-  return <Outlet />;
-}
+import { decrypt, derive, encrypt } from "./derive";
+import { store } from "./store";
 
 type AuthProviderProps = {
   children: React.ReactNode;
 };
 
 export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
-  const redirect = useNavigate();
-  const [challenge, setChallenge] = useState("");
-  const [cipher, setCipher] = useState(null as CryptoKey | null);
-  const [verifier, setVerifier] = useState("");
-  const [passphrase, setPassphrase] = useState("");
-  const [hasSignedIn, setHasSignedIn] = useState(false);
-  const [hasSignedUp, setHasSignedUp] = useState(false);
+  const [challenge, setChallenge] = useState<string | undefined>();
+  const [cipher, setCipher] = useState<CryptoKey | null>(null);
+  const [verifier, setVerifier] = useState<string>("");
+  const [passphrase, setPassphrase] = useState<string>("");
+  const [hasSignedIn, setHasSignedIn] = useState<boolean>(false);
+  const [hasSignedUp, setHasSignedUp] = useState<boolean>(false);
+  const [authReady, setAuthReady] = useState<boolean>(false);
+
+  if (!challenge) {
+  }
+
+  const resetWallet = async () => {
+    await Promise.all([
+      storage.removeItem(`local:${store.verifier}`),
+      storage.removeItem(`local:${store.mnemonic}`),
+    ]);
+    setPassphrase("");
+    setCipher(null);
+    setVerifier("");
+    setHasSignedIn(false);
+    setHasSignedUp(false);
+  };
 
   const signIn = async (email: string, password: string) => {
     const { encrypter } = await derive(email, password);
@@ -40,10 +42,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
     let output = "";
     try {
       output = await decrypt(encrypter, verifier);
-    } catch {
-      setCipher(null);
-      return false;
-    }
+    } catch {}
     if (output !== challenge) {
       setCipher(null);
       return false;
@@ -60,11 +59,13 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
   const signOut = async () => setCipher(null);
 
   const signUp = async (email: string, password: string): Promise<void> => {
+    if (!challenge) {
+      throw new Error("no challenge");
+    }
     const { encrypter } = await derive(email, password);
     const output = await encrypt(encrypter, challenge);
     await storage.setItem(`local:${store.verifier}`, output);
     setVerifier(output);
-    setHasSignedUp(true);
   };
 
   const savePassphrase = async (decodedPassphrase: string) => {
@@ -78,62 +79,38 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
 
   useEffect(() => {
     (async () => {
-      const challenge = await storage.getItem<string>(
-        `local:${store.challenge}`
+      let challenge = await storage.getItem<string>(`local:${store.challenge}`);
+      if (!challenge) {
+        challenge = self.crypto.randomUUID();
+        await storage.setItem(`local:${store.challenge}`, challenge);
+      }
+      setChallenge(challenge);
+      setVerifier(
+        (await storage.getItem<string>(`local:${store.verifier}`)) ?? ""
       );
-      const verifier = await storage.getItem<string>(`local:${store.verifier}`);
-      setChallenge(challenge ?? "");
-      setVerifier(verifier ?? "");
     })();
-  });
+  }, []);
 
   useEffect(() => {
     (async () => {
       if (verifier) {
-        await storage.setItem(`local:${store.verifier}`, verifier);
-        return;
+        setHasSignedUp(true);
+      } else {
+        setHasSignedUp(false);
       }
-      await Promise.all([
-        storage.removeItem(`local:${store.verifier}`),
-        storage.removeItem(`local:${store.mnemonic}`),
-      ]);
-      setPassphrase("");
-      setHasSignedIn(false);
-      setHasSignedUp(false);
-      redirect("/signup");
-    })();
-  }, [verifier]);
-
-  useEffect(() => {
-    (async () => {
-      if (challenge) {
-        return;
+      if (cipher) {
+        setHasSignedIn(true);
+      } else {
+        setHasSignedIn(false);
       }
-      const id = self.crypto.randomUUID();
-      await storage.setItem(`local:${store.challenge}`, id);
-      setChallenge(id);
+      challenge && setAuthReady(true);
     })();
-  }, [challenge]);
-
-  useEffect(() => {
-    if (verifier && !cipher) {
-      setHasSignedIn(false);
-      redirect("/signin");
-      return;
-    }
-    if (verifier && cipher) {
-      setHasSignedIn(true);
-      return;
-    }
-  }, [cipher]);
-
-  const resetWallet = () => setVerifier("");
+  }, [verifier, challenge, cipher]);
 
   return (
     <AuthContext.Provider
       value={{
-        challenge,
-        cipher,
+        authReady,
         hasSignedIn,
         hasSignedUp,
         passphrase,
@@ -142,7 +119,6 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactNode {
         signIn,
         signOut,
         signUp,
-        verifier,
       }}
     >
       {children}
@@ -154,31 +130,8 @@ type ProtectedRouteProps = {
   children: React.ReactNode;
 };
 
-export function ProtectedRoute({
-  children,
-}: ProtectedRouteProps): React.ReactNode {
-  const { cipher, verifier, passphrase } = useAuth();
-  const location = useLocation();
-  if (!verifier && location.pathname !== "/signup") {
-    return <Navigate to="/signup" replace state={{ from: location }} />;
-  }
-  if (!cipher && location.pathname !== "/signin") {
-    return <Navigate to="/signin" replace state={{ from: location }} />;
-  }
-  if (
-    !passphrase &&
-    location.pathname !== "/phrase" &&
-    location.pathname !== "/signin" &&
-    location.pathname !== "/signup"
-  ) {
-    return <Navigate to="/phrase" replace state={{ from: location }} />;
-  }
-  return children;
-}
-
 export const AuthContext = createContext<{
-  challenge: string;
-  cipher: CryptoKey | null;
+  authReady: boolean;
   hasSignedIn: boolean;
   hasSignedUp: boolean;
   passphrase: string;
@@ -187,10 +140,8 @@ export const AuthContext = createContext<{
   signIn: (e: string, p: string) => void;
   signOut: () => void;
   signUp: (e: string, p: string) => void;
-  verifier: string;
 }>({
-  challenge: "",
-  cipher: null,
+  authReady: false,
   hasSignedIn: false,
   hasSignedUp: false,
   passphrase: "",
@@ -199,7 +150,6 @@ export const AuthContext = createContext<{
   signIn: () => {},
   signOut: () => {},
   signUp: () => {},
-  verifier: "",
 });
 
 export function useAuth() {

@@ -7,7 +7,6 @@ export default function () {
   useEffect(() => {
     (async () => {
       await resetWallet();
-      redirect("/signup");
     })();
   }, []);
   return <div />;
